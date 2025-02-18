@@ -151,6 +151,8 @@ const MessageListContent: FC<OwnProps> = ({
       senderGroupIndex,
       senderGroupsArray,
     ) => {
+      console.log({messageGroup:senderGroup})
+
       if (
         senderGroup.length === 1
         && !isAlbum(senderGroup[0])
@@ -158,6 +160,7 @@ const MessageListContent: FC<OwnProps> = ({
         && !senderGroup[0].content.action?.phoneCall
       ) {
         const message = senderGroup[0]!;
+
         const isLastInList = (
           senderGroupIndex === senderGroupsArray.length - 1
           && dateGroupIndex === dateGroupsArray.length - 1

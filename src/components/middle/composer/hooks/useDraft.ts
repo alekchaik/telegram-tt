@@ -76,7 +76,7 @@ const useDraft = ({
         saveDraft({
           chatId: prevState.chatId ?? chatId,
           threadId: prevState.threadId ?? threadId,
-          text: parseHtmlAsFormattedText(html),
+          text: parseHtmlAsFormattedText(html,false,false,'save draft'),
         });
       });
     } else {

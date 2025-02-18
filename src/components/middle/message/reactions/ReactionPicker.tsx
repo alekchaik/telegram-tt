@@ -196,7 +196,7 @@ const ReactionPicker: FC<OwnProps & StateProps> = ({
     if ('type' in item && item.type === 'emoji') {
       text = item.emoticon;
     } else {
-      const customEmojiMessage = parseHtmlAsFormattedText(buildCustomEmojiHtml(sticker!));
+      const customEmojiMessage = parseHtmlAsFormattedText(buildCustomEmojiHtml(sticker!),false,false,'reaction');
       text = customEmojiMessage.text;
       entities = customEmojiMessage.entities;
     }

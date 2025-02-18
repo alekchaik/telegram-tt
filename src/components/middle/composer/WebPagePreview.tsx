@@ -80,7 +80,7 @@ const WebPagePreview: FC<OwnProps & StateProps> = ({
   const isSmallerMedia = attachmentSettings.webPageMediaSize === 'small';
 
   const detectLinkDebounced = useDebouncedResolver(() => {
-    const formattedText = parseHtmlAsFormattedText(getHtml());
+    const formattedText = parseHtmlAsFormattedText(getHtml(),false,false,'webpage');
     const linkEntity = formattedText.entities?.find((entity): entity is ApiMessageEntityTextUrl => (
       entity.type === ApiMessageEntityTypes.TextUrl
     ));

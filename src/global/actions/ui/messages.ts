@@ -775,7 +775,7 @@ addActionHandler('checkVersionNotification', (global, actions): ActionReturnType
     chatId: SERVICE_NOTIFICATIONS_USER_ID,
     date: getServerTime(),
     content: {
-      text: parseHtmlAsFormattedText(versionNotification, true),
+      text: parseHtmlAsFormattedText(versionNotification, true,false,'checkVersionNotification'),
     },
     isOutgoing: false,
   };

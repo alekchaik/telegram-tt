@@ -155,7 +155,7 @@ const PollModal: FC<OwnProps> = ({
     };
 
     if (isQuizMode) {
-      const { text, entities } = (solution && parseHtmlAsFormattedText(solution.substring(0, MAX_SOLUTION_LENGTH)))
+      const { text, entities } = (solution && parseHtmlAsFormattedText(solution.substring(0, MAX_SOLUTION_LENGTH),false,false,'solution'))
         || {};
 
       payload.quiz = {

@@ -532,6 +532,7 @@ const Composer: FC<OwnProps & StateProps> = ({
       }
     }
 
+    console.log('newHtml',{newHtml})
     setHtml(`${getHtml()}${newHtml}`);
 
     // If selection is outside of input, set cursor at the end of input
@@ -943,7 +944,7 @@ const Composer: FC<OwnProps & StateProps> = ({
       return;
     }
 
-    const { text, entities } = parseHtmlAsFormattedText(getHtml());
+    const { text, entities } = parseHtmlAsFormattedText(getHtml(),false,false,'attach');
     if (!text && !attachmentsToSend.length) {
       return;
     }
@@ -1033,7 +1034,8 @@ const Composer: FC<OwnProps & StateProps> = ({
       }
     }
 
-    const { text, entities } = parseHtmlAsFormattedText(getHtml());
+    const { text, entities } = parseHtmlAsFormattedText(getHtml(),false,false,'handle send');
+    console.log('handleSend', {html: getHtml(),text,entities})
 
     if (currentAttachments.length) {
       sendAttachments({
@@ -1527,7 +1529,7 @@ const Composer: FC<OwnProps & StateProps> = ({
         showCustomEmojiPremiumNotification();
         return;
       }
-      const customEmojiMessage = parseHtmlAsFormattedText(buildCustomEmojiHtml(sticker));
+      const customEmojiMessage = parseHtmlAsFormattedText(buildCustomEmojiHtml(sticker),false,false,'reaction');
       text = customEmojiMessage.text;
       entities = customEmojiMessage.entities;
     }

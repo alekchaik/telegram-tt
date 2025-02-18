@@ -62,6 +62,8 @@ export function updateCurrentMessageList<T extends GlobalState>(
   shouldReplaceLast?: boolean,
   ...[tabId = getCurrentTabId()]: TabArgs<T>
 ): T {
+  console.log('updateCurrentMessageList 1')
+  
   const { messageLists } = selectTabState(global, tabId);
   let newMessageLists: MessageList[] = messageLists;
   if (shouldReplaceHistory || (IS_TEST && !IS_MOCKED_CLIENT)) {
@@ -87,12 +89,16 @@ export function updateCurrentMessageList<T extends GlobalState>(
     newMessageLists = messageLists.slice(0, -1);
   }
 
+  console.log('updateCurrentMessageList', {newMessageLists})
+
+
   return updateTabState(global, {
     messageLists: newMessageLists,
   }, tabId);
 }
 
 function replaceChatMessages<T extends GlobalState>(global: T, chatId: string, newById: Record<number, ApiMessage>): T {
+  console.log('replaceChatMessages', {newById})
   return updateMessageStore(global, chatId, {
     byId: newById,
   });
@@ -144,6 +150,7 @@ export function updateThread<T extends GlobalState>(
 export function updateMessageStore<T extends GlobalState>(
   global: T, chatId: string, update: Partial<MessageStoreSections>,
 ): T {
+  console.log("updateMessageStore",{update,global,chatId})
   const current = global.messages.byChatId[chatId] || { byId: {}, threadsById: {} };
 
   return {

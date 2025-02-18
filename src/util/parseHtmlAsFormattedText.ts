@@ -19,14 +19,127 @@ export const ENTITY_CLASS_BY_NODE_NAME: Record<string, ApiMessageEntityTypes> = 
   BLOCKQUOTE: ApiMessageEntityTypes.Blockquote,
 };
 
+const SYMBOLS_BY_ENTITY_CLASS = {
+  [ApiMessageEntityTypes.Bold]: ['**', '__', '<b>'],
+  [ApiMessageEntityTypes.Italic]: ['*', '_', '<b>'],
+  [ApiMessageEntityTypes.Underline]: ['<i>', '<ins>'],
+  [ApiMessageEntityTypes.Strike]: ['<s>', '<strike>'],
+  [ApiMessageEntityTypes.Code]: ['<code>'],
+  [ApiMessageEntityTypes.Pre]: ['<pre>'],
+  [ApiMessageEntityTypes.Blockquote]: ['<blockquote>'],
+};
+
+const getEntityClassBySymbol = () => {
+  const entityClasses = Object.keys(SYMBOLS_BY_ENTITY_CLASS) as (keyof typeof SYMBOLS_BY_ENTITY_CLASS)[];
+
+  return entityClasses.reduce<Record<string,
+  { entity: ApiMessageEntityTypes; closingSymbol: string; isMarkdown: boolean } >>((acc, entity) => {
+    const symbols = SYMBOLS_BY_ENTITY_CLASS[entity];
+    symbols.forEach((symbol) => {
+      const isHtml = symbol[0] === '<';
+      const closingSymbol = isHtml ? `</${symbol.slice(1)}` : symbol;
+
+      acc[symbol] = { entity, closingSymbol, isMarkdown: !isHtml };
+    });
+    return acc;
+  }, {});
+};
+
+const ENTITY_CLASS_BY_SYMBOL = getEntityClassBySymbol();
+
+const getOrderedSymbolEntries = () => {
+  const entries = Object.entries(ENTITY_CLASS_BY_SYMBOL);
+
+  entries.sort((a, b) => {
+    return b[0].length - a[0].length;
+  });
+
+  return entries;
+};
+
+const ORDERED_SYMBOL_ENTRIES = getOrderedSymbolEntries();
+
+const getInputEntityMatch = (input:string, chPosition:number) => {
+  const symbolsTrackMap = Object.fromEntries(ORDERED_SYMBOL_ENTRIES.map(([symbol]) => [symbol, false]));
+
+  for (let i = 0; i < ORDERED_SYMBOL_ENTRIES.length; i++) {
+    const [symbol, entityData] = ORDERED_SYMBOL_ENTRIES[i];
+
+    const doesMatchSymbol = symbol === input.slice(chPosition, chPosition + symbol.length);
+
+    if (!doesMatchSymbol) {
+      continue;
+    }
+
+    console.log({ doesMatchSymbol, symbol, chPosition });
+
+    if (entityData.isMarkdown) {
+      const isClosingSymbol = symbolsTrackMap[symbol];
+
+      symbolsTrackMap[symbol] = !isClosingSymbol;
+
+      if (isClosingSymbol) {
+        return undefined;
+      }
+    }
+
+    const closingSymbolIndex = input.indexOf(entityData.closingSymbol, chPosition + symbol.length + 1);
+
+    if (closingSymbolIndex !== -1) {
+      return {
+        start: chPosition,
+        end: closingSymbolIndex + entityData.closingSymbol.length,
+        entity: entityData.entity,
+        newIndex: chPosition + symbol.length,
+      };
+    }
+  }
+
+  return undefined;
+};
+
+const getEntitySymbolPairs = (input:string) => {
+  const inputSymbolsMap = new Map<ApiMessageEntityTypes, { start:number;end:number }[]>();
+
+  if (!input.includes('keku')) {
+    return inputSymbolsMap;
+  }
+
+  let i = 0;
+  do {
+    const currentI = i;
+    i++;
+    console.log({ indexK: currentI });
+    const matchedEntity = getInputEntityMatch(input, currentI);
+
+    if (matchedEntity) {
+      const symbolPairs = inputSymbolsMap.get(matchedEntity.entity) || [];
+
+      symbolPairs.push({ start: matchedEntity.start, end: matchedEntity.end });
+
+      inputSymbolsMap.set(matchedEntity.entity, symbolPairs);
+      console.log({ newIndex: matchedEntity.newIndex });
+      i = matchedEntity.newIndex;
+    }
+  } while (i < input.length);
+
+  return inputSymbolsMap;
+};
+
+console.log({ ENTITY_CLASS_BY_SYMBOL });
+
 const MAX_TAG_DEEPNESS = 3;
 
+// TODO: HERE
 export default function parseHtmlAsFormattedText(
-  html: string, withMarkdownLinks = false, skipMarkdown = false,
+  html: string, withMarkdownLinks = false, skipMarkdown = false, id = 'unknown',
 ): ApiFormattedText {
   const fragment = document.createElement('div');
   fragment.innerHTML = skipMarkdown ? html
     : withMarkdownLinks ? parseMarkdown(parseMarkdownLinks(html)) : parseMarkdown(html);
+
+  console.log(`id-${html}`.slice(0, 20), { html, innerHtml: fragment.innerHTML, entityMap: getEntitySymbolPairs(html) });
+
   fixImageContent(fragment);
   const text = fragment.innerText.trim().replace(/\u200b+/g, '');
   const trimShift = fragment.innerText.indexOf(text[0]);
@@ -60,9 +173,17 @@ export default function parseHtmlAsFormattedText(
     addEntity(node);
   });
 
+  console.log({ entities });
+
   return {
     text,
-    entities: entities.length ? entities : undefined,
+    entities: undefined,
+    // entities: entities.length ? entities : undefined,
+    // entities: [{
+    //   type: ApiMessageEntityTypes.Bold,
+    //   offset:0,
+    //   length: text.length
+    // }]
   };
 }
 
@@ -74,6 +195,10 @@ export function fixImageContent(fragment: HTMLDivElement) {
       node.replaceWith(node.alt || '');
     }
   });
+}
+
+function parseMarkdownNew(html:string) {
+  return html;
 }
 
 function parseMarkdown(html: string) {

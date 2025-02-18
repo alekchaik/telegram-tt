@@ -33,6 +33,7 @@ export default function renderText(
   filters: Array<TextFilter> = ['emoji'],
   params?: { highlight?: string; quote?: string; markdownPostProcessor?: (part: string) => TeactNode },
 ): TeactNode[] {
+  console.log({part,filters,params})
   if (typeof part !== 'string') {
     return [part];
   }
@@ -73,10 +74,10 @@ export default function renderText(
         return addLinks(text, true);
 
       case 'simple_markdown':
-        return replaceSimpleMarkdown(text, 'jsx', params?.markdownPostProcessor);
+        // return replaceSimpleMarkdown(text, 'jsx', params?.markdownPostProcessor);
 
       case 'simple_markdown_html':
-        return replaceSimpleMarkdown(text, 'html');
+        // return replaceSimpleMarkdown(text, 'html');
     }
 
     return text;

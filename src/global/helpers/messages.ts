@@ -312,6 +312,7 @@ export function mergeIdRanges(ranges: number[][], idsUpdate: number[]): number[]
 }
 
 export function extractMessageText(message: ApiMessage | ApiStory, inChatList = false) {
+  console.log({messageKek:message})
   const contentText = message.content.text;
   if (!contentText) return undefined;
 
