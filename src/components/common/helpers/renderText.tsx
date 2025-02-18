@@ -33,7 +33,7 @@ export default function renderText(
   filters: Array<TextFilter> = ['emoji'],
   params?: { highlight?: string; quote?: string; markdownPostProcessor?: (part: string) => TeactNode },
 ): TeactNode[] {
-  console.log({part,filters,params})
+  // console.log({part,filters,params})
   if (typeof part !== 'string') {
     return [part];
   }

@@ -151,8 +151,6 @@ const MessageListContent: FC<OwnProps> = ({
       senderGroupIndex,
       senderGroupsArray,
     ) => {
-      console.log({messageGroup:senderGroup})
-
       if (
         senderGroup.length === 1
         && !isAlbum(senderGroup[0])

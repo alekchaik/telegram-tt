@@ -21,19 +21,21 @@ export const ENTITY_CLASS_BY_NODE_NAME: Record<string, ApiMessageEntityTypes> = 
 
 const SYMBOLS_BY_ENTITY_CLASS = {
   [ApiMessageEntityTypes.Bold]: ['**', '__', '<b>'],
-  [ApiMessageEntityTypes.Italic]: ['*', '_', '<b>'],
-  [ApiMessageEntityTypes.Underline]: ['<i>', '<ins>'],
+  [ApiMessageEntityTypes.Italic]: ['*', '_', '<i>', '<em>'],
+  [ApiMessageEntityTypes.Underline]: ['<u>', '<ins>'],
   [ApiMessageEntityTypes.Strike]: ['<s>', '<strike>'],
-  [ApiMessageEntityTypes.Code]: ['<code>'],
-  [ApiMessageEntityTypes.Pre]: ['<pre>'],
+  [ApiMessageEntityTypes.Code]: ['<code>', '`'],
+  [ApiMessageEntityTypes.Pre]: ['<pre>', '```'],
   [ApiMessageEntityTypes.Blockquote]: ['<blockquote>'],
 };
 
+type SupportedEntities = (keyof typeof SYMBOLS_BY_ENTITY_CLASS);
+
 const getEntityClassBySymbol = () => {
-  const entityClasses = Object.keys(SYMBOLS_BY_ENTITY_CLASS) as (keyof typeof SYMBOLS_BY_ENTITY_CLASS)[];
+  const entityClasses = Object.keys(SYMBOLS_BY_ENTITY_CLASS) as SupportedEntities[];
 
   return entityClasses.reduce<Record<string,
-  { entity: ApiMessageEntityTypes; closingSymbol: string; isMarkdown: boolean } >>((acc, entity) => {
+  { entity: SupportedEntities; closingSymbol: string; isMarkdown: boolean } >>((acc, entity) => {
     const symbols = SYMBOLS_BY_ENTITY_CLASS[entity];
     symbols.forEach((symbol) => {
       const isHtml = symbol[0] === '<';
@@ -71,8 +73,6 @@ const getInputEntityMatch = (input:string, chPosition:number) => {
       continue;
     }
 
-    console.log({ doesMatchSymbol, symbol, chPosition });
-
     if (entityData.isMarkdown) {
       const isClosingSymbol = symbolsTrackMap[symbol];
 
@@ -88,9 +88,10 @@ const getInputEntityMatch = (input:string, chPosition:number) => {
     if (closingSymbolIndex !== -1) {
       return {
         start: chPosition,
-        end: closingSymbolIndex + entityData.closingSymbol.length,
+        end: closingSymbolIndex + entityData.closingSymbol.length - 1,
         entity: entityData.entity,
-        newIndex: chPosition + symbol.length,
+        symbol,
+        closingSymbol: entityData.closingSymbol,
       };
     }
   }
@@ -98,32 +99,146 @@ const getInputEntityMatch = (input:string, chPosition:number) => {
   return undefined;
 };
 
+type EntitySymbolPairs = Record<string, { start:number; end:number }[]>;
+
 const getEntitySymbolPairs = (input:string) => {
-  const inputSymbolsMap = new Map<ApiMessageEntityTypes, { start:number;end:number }[]>();
+  const inputSymbolsMap:EntitySymbolPairs = {};
 
-  if (!input.includes('keku')) {
-    return inputSymbolsMap;
-  }
-
-  let i = 0;
-  do {
+  for (let i = 0; i < input.length; i++) {
     const currentI = i;
-    i++;
-    console.log({ indexK: currentI });
     const matchedEntity = getInputEntityMatch(input, currentI);
 
     if (matchedEntity) {
-      const symbolPairs = inputSymbolsMap.get(matchedEntity.entity) || [];
+      const symbol = matchedEntity.symbol;
 
-      symbolPairs.push({ start: matchedEntity.start, end: matchedEntity.end });
+      const symbolPairs = inputSymbolsMap[symbol] || [];
 
-      inputSymbolsMap.set(matchedEntity.entity, symbolPairs);
-      console.log({ newIndex: matchedEntity.newIndex });
-      i = matchedEntity.newIndex;
+      symbolPairs.push({
+        start: matchedEntity.start,
+        end: matchedEntity.end,
+      });
+
+      if (!inputSymbolsMap[symbol]) {
+        inputSymbolsMap[symbol] = symbolPairs;
+      }
+
+      i += symbol.length - 1;
     }
-  } while (i < input.length);
+  }
 
   return inputSymbolsMap;
+};
+
+const getEntitySymbolIntersections = (entitySymbolPairs:EntitySymbolPairs) => {
+  console.log({ entitySymbolPairs });
+  const points:{ index:number;entitySymbol: string; isStart:boolean }[] = [];
+
+  const entitySymbols = Object.keys(entitySymbolPairs) as (keyof typeof entitySymbolPairs)[];
+  entitySymbols.forEach((entitySymbol) => {
+    const symbolPairs = entitySymbolPairs[entitySymbol];
+    symbolPairs?.forEach(({ start, end }) => {
+      points.push({ index: start, entitySymbol, isStart: true });
+      points.push({ index: end, entitySymbol, isStart: false });
+    });
+  });
+
+  points.sort((a, b) => a.index - b.index || (a.isStart ? -1 : 1));
+
+  const activeEntitySymbols = new Set<string>();
+  const result:{ entitySymbols:string[]; start:number;end:number }[] = [];
+  let lastIndex:number | undefined;
+
+  points.forEach((point) => {
+    if (lastIndex !== undefined && lastIndex !== point.index) {
+      result.push({
+        entitySymbols: Array.from(activeEntitySymbols),
+        start: lastIndex,
+        end: point.index,
+      });
+    }
+
+    if (point.isStart) {
+      activeEntitySymbols.add(point.entitySymbol);
+    } else {
+      activeEntitySymbols.delete(point.entitySymbol);
+    }
+
+    lastIndex = point.index;
+  });
+
+  return result;
+};
+
+type AstTreeNode = {
+  entityType: ApiMessageEntityTypes | 'text';
+  body: (string | AstTreeNode)[];
+};
+
+const getAstTree = (input:string) => {
+  const entitySymbolPairs = getEntitySymbolPairs(input);
+  const intersections = getEntitySymbolIntersections(entitySymbolPairs);
+  const astTree: AstTreeNode[] = [];
+
+  if (!intersections.length) {
+    astTree.push({ entityType: 'text', body: [input] });
+    return astTree;
+  }
+
+  let incomingIntersectionIndex = 0;
+  let commonTextIndex = intersections[incomingIntersectionIndex].start === 0 ? undefined : 0;
+  // let commonTextIndex = !intersectionsExist || intersections[incomingIntersectionIndex].startIndex !== 0 ? 0 : null;
+
+  console.log({ astTree: {}, intersections });
+
+  for (let i = 0; i < input.length; i++) {
+    const incomingIntersection = intersections[incomingIntersectionIndex];
+    const inIntersection = incomingIntersection && i >= incomingIntersection.start;
+    const isLastCh = i === input.length - 1;
+
+    if (commonTextIndex !== undefined && (inIntersection || isLastCh)) {
+      const commonTextSlice = isLastCh ? input.slice(commonTextIndex) : input.slice(commonTextIndex, i);
+      astTree.push({ entityType: 'text', body: [commonTextSlice] });
+    }
+
+    if (incomingIntersection && i >= incomingIntersection.start) {
+      commonTextIndex = undefined;
+
+      i = incomingIntersection.end;
+      incomingIntersectionIndex++;
+
+      const latestIntersectionIndex = incomingIntersection.entitySymbols.length - 1;
+      const latestEntitySymbol = incomingIntersection.entitySymbols[latestIntersectionIndex];
+      const latestEntityData = ENTITY_CLASS_BY_SYMBOL[latestEntitySymbol];
+
+      const commonText = input.slice(incomingIntersection.start + latestEntitySymbol.length,
+        incomingIntersection.end - latestEntityData.closingSymbol.length + 1);
+
+      if (!commonText) {
+        continue;
+      }
+
+      let newAst:AstTreeNode = {
+        entityType: latestEntityData.entity,
+        body: [commonText],
+      };
+
+      for (let j = latestIntersectionIndex - 1; j >= 0; j--) {
+        const entitySymbol = incomingIntersection.entitySymbols[j];
+        const entityData = ENTITY_CLASS_BY_SYMBOL[entitySymbol];
+
+        newAst = {
+          entityType: entityData.entity,
+          body: [newAst],
+        };
+      }
+
+      astTree.push(newAst);
+    } else if (commonTextIndex === undefined) {
+      commonTextIndex = i;
+    }
+  }
+
+  return astTree;
 };
 
 console.log({ ENTITY_CLASS_BY_SYMBOL });
@@ -138,7 +253,9 @@ export default function parseHtmlAsFormattedText(
   fragment.innerHTML = skipMarkdown ? html
     : withMarkdownLinks ? parseMarkdown(parseMarkdownLinks(html)) : parseMarkdown(html);
 
-  console.log(`id-${html}`.slice(0, 20), { html, innerHtml: fragment.innerHTML, entityMap: getEntitySymbolPairs(html) });
+  console.log(`id-${html}`.slice(0, 20), {
+    html, innerHtml: fragment.innerHTML, entityMap: getEntitySymbolPairs(html), astTree: getAstTree(html),
+  });
 
   fixImageContent(fragment);
   const text = fragment.innerText.trim().replace(/\u200b+/g, '');

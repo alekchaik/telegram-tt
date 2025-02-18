@@ -416,7 +416,6 @@ const Message: FC<OwnProps & StateProps> = ({
   poll,
   onIntersectPinnedMessage,
 }) => {
-  console.log({messageComponent:message})
   const {
     toggleMessageSelection,
     clickBotInlineButton,

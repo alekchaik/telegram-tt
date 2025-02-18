@@ -303,7 +303,7 @@ addActionHandler('loadMessage', async (global, actions, payload): Promise<void> 
 addActionHandler('sendMessage', (global, actions, payload): ActionReturnType => {
   const { messageList, tabId = getCurrentTabId() } = payload;
 
-  console.log('sendMessage', JSON.stringify({payload},null,2))
+  // console.log('sendMessage', JSON.stringify({ payload }, null, 2));
 
   const { storyId, peerId: storyPeerId } = selectCurrentViewedStory(global, tabId);
   const isStoryReply = Boolean(storyId && storyPeerId);
