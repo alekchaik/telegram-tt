@@ -129,115 +129,98 @@ const getEntitySymbolPairs = (input:string) => {
   return inputSymbolsMap;
 };
 
-const getEntitySymbolIntersections = (entitySymbolPairs:EntitySymbolPairs) => {
-  console.log({ entitySymbolPairs });
-  const points:{ index:number;entitySymbol: string; isStart:boolean }[] = [];
-
-  const entitySymbols = Object.keys(entitySymbolPairs) as (keyof typeof entitySymbolPairs)[];
-  entitySymbols.forEach((entitySymbol) => {
-    const symbolPairs = entitySymbolPairs[entitySymbol];
-    symbolPairs?.forEach(({ start, end }) => {
-      points.push({ index: start, entitySymbol, isStart: true });
-      points.push({ index: end, entitySymbol, isStart: false });
-    });
-  });
-
-  points.sort((a, b) => a.index - b.index || (a.isStart ? -1 : 1));
-
-  const activeEntitySymbols = new Set<string>();
-  const result:{ entitySymbols:string[]; start:number;end:number }[] = [];
-  let lastIndex:number | undefined;
-
-  points.forEach((point) => {
-    if (lastIndex !== undefined && lastIndex !== point.index) {
-      result.push({
-        entitySymbols: Array.from(activeEntitySymbols),
-        start: lastIndex,
-        end: point.index,
-      });
-    }
-
-    if (point.isStart) {
-      activeEntitySymbols.add(point.entitySymbol);
-    } else {
-      activeEntitySymbols.delete(point.entitySymbol);
-    }
-
-    lastIndex = point.index;
-  });
-
-  return result;
-};
-
 type AstTreeNode = {
   entityType: ApiMessageEntityTypes | 'text';
   body: (string | AstTreeNode)[];
 };
 
-const getAstTree = (input:string) => {
-  const entitySymbolPairs = getEntitySymbolPairs(input);
-  const intersections = getEntitySymbolIntersections(entitySymbolPairs);
+const getAstTreeHelper = (input:string,
+  points:{ entitySymbol: string; start:number; end:number }[], minPosition = 0, maxPosition = input.length) => {
   const astTree: AstTreeNode[] = [];
 
-  if (!intersections.length) {
-    astTree.push({ entityType: 'text', body: [input] });
-    return astTree;
+  if (!points.length) {
+    const text = input.slice(minPosition, maxPosition);
+
+    astTree.push({ entityType: 'text', body: [input.slice(minPosition, maxPosition)] });
+    return { astTree, text };
   }
 
-  let incomingIntersectionIndex = 0;
-  let commonTextIndex = intersections[incomingIntersectionIndex].start === 0 ? undefined : 0;
-  // let commonTextIndex = !intersectionsExist || intersections[incomingIntersectionIndex].startIndex !== 0 ? 0 : null;
+  let lastPointIndex;
 
-  console.log({ astTree: {}, intersections });
+  let text = '';
 
-  for (let i = 0; i < input.length; i++) {
-    const incomingIntersection = intersections[incomingIntersectionIndex];
-    const inIntersection = incomingIntersection && i >= incomingIntersection.start;
-    const isLastCh = i === input.length - 1;
+  for (let i = 0; i < points.length; i++) {
+    const currentI = i;
+    const point = points[currentI];
 
-    if (commonTextIndex !== undefined && (inIntersection || isLastCh)) {
-      const commonTextSlice = isLastCh ? input.slice(commonTextIndex) : input.slice(commonTextIndex, i);
-      astTree.push({ entityType: 'text', body: [commonTextSlice] });
+    const previousPosition = currentI === 0 ? minPosition : points[currentI - 1].end + 1;
+
+    const previousTextSlice = input.slice(previousPosition, point.start);
+
+    if (previousTextSlice) {
+      text += previousTextSlice;
+      astTree.push({
+        entityType: 'text',
+        body: [previousTextSlice],
+      });
     }
 
-    if (incomingIntersection && i >= incomingIntersection.start) {
-      commonTextIndex = undefined;
+    let nextI = currentI;
 
-      i = incomingIntersection.end;
-      incomingIntersectionIndex++;
+    const nestedPoints = points.filter((nestedPoint, nestedPointI) => {
+      nextI = Math.max(nextI, nestedPointI);
+      return nestedPointI > i && point.start <= nestedPoint.start && point.end >= nestedPoint.end;
+    });
 
-      const latestIntersectionIndex = incomingIntersection.entitySymbols.length - 1;
-      const latestEntitySymbol = incomingIntersection.entitySymbols[latestIntersectionIndex];
-      const latestEntityData = ENTITY_CLASS_BY_SYMBOL[latestEntitySymbol];
+    const entityData = ENTITY_CLASS_BY_SYMBOL[point.entitySymbol];
 
-      const commonText = input.slice(incomingIntersection.start + latestEntitySymbol.length,
-        incomingIntersection.end - latestEntityData.closingSymbol.length + 1);
+    const newMinPosition = point.start + point.entitySymbol.length;
+    const newMaxPosition = point.end - entityData.closingSymbol.length + 1;
 
-      if (!commonText) {
-        continue;
-      }
+    const nestedAstData = getAstTreeHelper(input, nestedPoints, newMinPosition, newMaxPosition);
 
-      let newAst:AstTreeNode = {
-        entityType: latestEntityData.entity,
-        body: [commonText],
-      };
+    text += nestedAstData.text;
 
-      for (let j = latestIntersectionIndex - 1; j >= 0; j--) {
-        const entitySymbol = incomingIntersection.entitySymbols[j];
-        const entityData = ENTITY_CLASS_BY_SYMBOL[entitySymbol];
+    astTree.push({
+      entityType: entityData.entity,
+      body: nestedAstData.astTree,
+    });
 
-        newAst = {
-          entityType: entityData.entity,
-          body: [newAst],
-        };
-      }
+    i = nextI;
+    lastPointIndex = currentI;
+  }
 
-      astTree.push(newAst);
-    } else if (commonTextIndex === undefined) {
-      commonTextIndex = i;
+  if (lastPointIndex !== undefined) {
+    const lastPoint = points[lastPointIndex];
+    const lastInputSlice = input.slice(lastPoint.end + 1, maxPosition);
+
+    if (lastInputSlice) {
+      text += lastInputSlice;
+      astTree.push({ entityType: 'text', body: [lastInputSlice] });
     }
   }
 
+  return { astTree, text };
+};
+
+const getAstTree = (input:string) => {
+  const entitySymbolPairs = getEntitySymbolPairs(input);
+
+  const points:{ entitySymbol: string; start:number; end:number }[] = [];
+
+  const entitySymbols = Object.keys(entitySymbolPairs) as (keyof typeof entitySymbolPairs)[];
+  entitySymbols.forEach((entitySymbol) => {
+    const symbolPairs = entitySymbolPairs[entitySymbol];
+    symbolPairs?.forEach(({ start, end }) => {
+      points.push({ start, end, entitySymbol });
+    });
+  });
+
+  points.sort((a, b) => a.start - b.start);
+
+  const { astTree, text } = getAstTreeHelper(input, points);
+
+  console.log({ text });
   return astTree;
 };
 
@@ -253,8 +236,13 @@ export default function parseHtmlAsFormattedText(
   fragment.innerHTML = skipMarkdown ? html
     : withMarkdownLinks ? parseMarkdown(parseMarkdownLinks(html)) : parseMarkdown(html);
 
-  console.log(`id-${html}`.slice(0, 20), {
-    html, innerHtml: fragment.innerHTML, entityMap: getEntitySymbolPairs(html), astTree: getAstTree(html),
+  // console.log(`id-${html}`.slice(0, 20), {
+  //   html, innerHtml: fragment.innerHTML, entityMap: getEntitySymbolPairs(html), astTree: getAstTree(html),
+  // });
+
+  // console.log({})
+  console.log({
+    astTree: getAstTree(html),
   });
 
   fixImageContent(fragment);
