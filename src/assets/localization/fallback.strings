@@ -360,6 +360,9 @@
 "CreateNewFilter" = "Create New Folder";
 "Filters" = "Chat Folders";
 "FilterRecommended" = "Recommended Folders";
+"FoldersView" = "Folders view";
+"FoldersViewLeft" = "Folders on the Left";
+"FoldersViewAbove" = "Folders above chats";
 "Add" = "Add";
 "EnterNewPasscode" = "Enter new passcode";
 "Continue" = "Continue";
