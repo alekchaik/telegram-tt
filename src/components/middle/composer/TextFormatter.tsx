@@ -234,11 +234,6 @@ const TextFormatter: FC<OwnProps> = ({
     setSelectedTextFormats((selectedFormats) => {
       // Somehow re-applying 'bold' command to already bold text doesn't work
       document.execCommand(selectedFormats.bold ? 'removeFormat' : 'bold');
-      Object.keys(selectedFormats).forEach((key) => {
-        if ((key === 'italic' || key === 'underline') && Boolean(selectedFormats[key])) {
-          document.execCommand(key);
-        }
-      });
 
       updateSelectedRange();
       return {
