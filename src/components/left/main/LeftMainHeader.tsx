@@ -17,6 +17,7 @@ import {
   selectCanSetPasscode,
   selectCurrentMessageList,
   selectIsCurrentUserPremium,
+  selectShouldShowLeftSidebar,
   selectTabState,
   selectTheme,
 } from '../../../global/selectors';
@@ -75,6 +76,7 @@ type StateProps =
     areChatsLoaded?: boolean;
     hasPasscode?: boolean;
     canSetPasscode?: boolean;
+    shouldShowLeftSidebar: boolean;
   }
   & Pick<GlobalState, 'connectionState' | 'isSyncing' | 'isFetchingDifference'>;
 
@@ -106,6 +108,7 @@ const LeftMainHeader: FC<OwnProps & StateProps> = ({
   onSelectContacts,
   onSelectArchived,
   onReset,
+  shouldShowLeftSidebar,
 }) => {
   const {
     setGlobalSearchDate,
@@ -117,7 +120,8 @@ const LeftMainHeader: FC<OwnProps & StateProps> = ({
 
   const oldLang = useOldLang();
   const lang = useLang();
-  const { isMobile } = useAppLayout();
+  const { isMobile, isDesktop } = useAppLayout();
+  const shouldShowDropdown = !shouldShowLeftSidebar || !isDesktop;
 
   const [isBotMenuOpen, markBotMenuOpen, unmarkBotMenuOpen] = useFlag();
 
@@ -254,28 +258,30 @@ const LeftMainHeader: FC<OwnProps & StateProps> = ({
     <div className="LeftMainHeader">
       <div id="LeftMainHeader" className="left-header" ref={headerRef}>
         {oldLang.isRtl && <div className="DropdownMenuFiller" />}
-        <DropdownMenu
-          trigger={MainButton}
-          footer={`${APP_NAME} ${versionString}`}
-          className={buildClassName(
-            'main-menu',
-            oldLang.isRtl && 'rtl',
-            shouldHideSearch && oldLang.isRtl && 'right-aligned',
-            shouldDisableDropdownMenuTransitionRef.current && oldLang.isRtl && 'disable-transition',
-          )}
-          forceOpen={isBotMenuOpen}
-          positionX={shouldHideSearch && oldLang.isRtl ? 'right' : 'left'}
-          transformOriginX={IS_ELECTRON && IS_MAC_OS && !isFullscreen ? 90 : undefined}
-          onTransitionEnd={oldLang.isRtl ? handleDropdownMenuTransitionEnd : undefined}
-        >
-          <LeftSideMenuItems
-            onSelectArchived={onSelectArchived}
-            onSelectContacts={onSelectContacts}
-            onSelectSettings={onSelectSettings}
-            onBotMenuOpened={markBotMenuOpen}
-            onBotMenuClosed={unmarkBotMenuOpen}
-          />
-        </DropdownMenu>
+        {shouldShowDropdown && (
+          <DropdownMenu
+            trigger={MainButton}
+            footer={`${APP_NAME} ${versionString}`}
+            className={buildClassName(
+              'main-menu',
+              oldLang.isRtl && 'rtl',
+              shouldHideSearch && oldLang.isRtl && 'right-aligned',
+              shouldDisableDropdownMenuTransitionRef.current && oldLang.isRtl && 'disable-transition',
+            )}
+            forceOpen={isBotMenuOpen}
+            positionX={shouldHideSearch && oldLang.isRtl ? 'right' : 'left'}
+            transformOriginX={IS_ELECTRON && IS_MAC_OS && !isFullscreen ? 90 : undefined}
+            onTransitionEnd={oldLang.isRtl ? handleDropdownMenuTransitionEnd : undefined}
+          >
+            <LeftSideMenuItems
+              onSelectArchived={onSelectArchived}
+              onSelectContacts={onSelectContacts}
+              onSelectSettings={onSelectSettings}
+              onBotMenuOpened={markBotMenuOpen}
+              onBotMenuClosed={unmarkBotMenuOpen}
+            />
+          </DropdownMenu>
+        )}
         <SearchInput
           inputId="telegram-search-input"
           resultsItemSelector=".LeftSearch .ListItem-button"
@@ -342,6 +348,8 @@ export default memo(withGlobal<OwnProps>(
     } = global;
     const { isConnectionStatusMinimized } = global.settings.byKey;
 
+    const shouldShowLeftSidebar = selectShouldShowLeftSidebar(global);
+
     return {
       searchQuery,
       isLoading: fetchingStatus ? Boolean(fetchingStatus.chats || fetchingStatus.messages) : false,
@@ -357,6 +365,7 @@ export default memo(withGlobal<OwnProps>(
       areChatsLoaded: Boolean(global.chats.listIds.active),
       hasPasscode: Boolean(global.passcode.hasPasscode),
       canSetPasscode: selectCanSetPasscode(global),
+      shouldShowLeftSidebar,
     };
   },
 )(LeftMainHeader));

@@ -10,6 +10,7 @@ import { getActions, getGlobal, withGlobal } from '../../global';
 
 import type { ApiChatFolder, ApiLimitTypeWithModal, ApiUser } from '../../api/types';
 import type { TabState } from '../../global/types';
+import { LeftColumnContent } from '../../types';
 import { ElectronEvent } from '../../types/electron';
 
 import { BASE_EMOJI_KEYWORD_LANG, DEBUG, INACTIVE_MARKER } from '../../config';
@@ -27,6 +28,7 @@ import {
   selectIsServiceChatReady,
   selectIsStoryViewerOpen,
   selectPerformanceSettingsValue,
+  selectShouldShowLeftSidebar,
   selectTabState,
   selectUser,
 } from '../../global/selectors';
@@ -60,6 +62,7 @@ import DeleteMessageModal from '../common/DeleteMessageModal.async';
 import StickerSetModal from '../common/StickerSetModal.async';
 import UnreadCount from '../common/UnreadCounter';
 import LeftColumn from '../left/LeftColumn';
+import LeftSidebar from '../left/LeftSidebar';
 import MediaViewer from '../mediaViewer/MediaViewer.async';
 import ReactionPicker from '../middle/message/reactions/ReactionPicker.async';
 import MessageListHistoryHandler from '../middle/MessageListHistoryHandler';
@@ -99,6 +102,7 @@ export interface OwnProps {
 type StateProps = {
   isMasterTab?: boolean;
   currentUserId?: string;
+  shouldShowLeftSidebar:boolean;
   isLeftColumnOpen: boolean;
   isMiddleColumnOpen: boolean;
   isRightColumnOpen: boolean;
@@ -193,6 +197,7 @@ const Main = ({
   noRightColumnAnimation,
   isSynced,
   currentUserId,
+  shouldShowLeftSidebar,
 }: OwnProps & StateProps) => {
   const {
     initMain,
@@ -249,6 +254,8 @@ const Main = ({
     loadPasswordInfo,
   } = getActions();
 
+  const [leftColumnContent, setLeftColumnContent] = useState<LeftColumnContent>(LeftColumnContent.ChatList);
+
   if (DEBUG && !DEBUG_isLogged) {
     DEBUG_isLogged = true;
     // eslint-disable-next-line no-console
@@ -268,6 +275,9 @@ const Main = ({
   const leftColumnRef = useRef<HTMLDivElement>(null);
 
   const { isDesktop } = useAppLayout();
+
+  const isLeftSidebarOpen = isDesktop && shouldShowLeftSidebar;
+
   useEffect(() => {
     if (!isLeftColumnOpen && !isMiddleColumnOpen && !isDesktop) {
       // Always display at least one column
@@ -538,7 +548,11 @@ const Main = ({
 
   return (
     <div ref={containerRef} id="Main" className={className}>
-      <LeftColumn ref={leftColumnRef} />
+      <LeftSidebar
+        isShown={isLeftSidebarOpen}
+        setLeftColumnContent={setLeftColumnContent}
+      />
+      <LeftColumn content={leftColumnContent} setContent={setLeftColumnContent} ref={leftColumnRef} />
       <MiddleColumn leftColumnRef={leftColumnRef} isMobile={isMobile} />
       <RightColumn isMobile={isMobile} />
       <MediaViewer isOpen={isMediaViewerOpen} />
@@ -642,6 +656,7 @@ export default memo(withGlobal<OwnProps>(
     return {
       currentUserId,
       isLeftColumnOpen: isLeftColumnShown,
+      shouldShowLeftSidebar: selectShouldShowLeftSidebar(global),
       isMiddleColumnOpen: Boolean(chatId),
       isRightColumnOpen: selectIsRightColumnShown(global, isMobile),
       isMediaViewerOpen: selectIsMediaViewerOpen(global),

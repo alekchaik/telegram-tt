@@ -1,5 +1,6 @@
 import type {
   ApiChat, ApiChatFullInfo, ApiChatType,
+  ChatListFoldersInfo,
 } from '../../api/types';
 import type { ChatListType } from '../../types';
 import type { GlobalState, TabArgs } from '../types';
@@ -19,6 +20,7 @@ import {
   isUserId,
   isUserOnline,
 } from '../helpers';
+import { selectCurrentLimit } from './limits';
 import { selectTabState } from './tabs';
 import {
   selectBot, selectIsCurrentUserPremium, selectUser, selectUserFullInfo,
@@ -344,4 +346,29 @@ export function selectChatLastMessage<T extends GlobalState>(
 
   const realChatId = listType === 'saved' ? global.currentUserId! : chatId;
   return global.messages.byChatId[realChatId]?.byId[id];
+}
+
+export function selectChatListFoldersInfo<T extends GlobalState>(
+  global: T, ...[tabId = getCurrentTabId()]: TabArgs<T>
+
+):ChatListFoldersInfo {
+  const {
+    chatFolders: {
+      byId: chatFoldersById,
+      orderedIds: orderedFolderIds,
+      invites: folderInvitesById,
+    },
+  } = global;
+
+  const { activeChatFolder } = selectTabState(global, tabId);
+
+  return {
+    orderedFolderIds,
+    chatFoldersById,
+    maxFolders: selectCurrentLimit(global, 'dialogFilters'),
+    maxFolderInvites: selectCurrentLimit(global, 'chatlistInvites'),
+    maxChatLists: selectCurrentLimit(global, 'chatlistJoined'),
+    folderInvitesById,
+    activeChatFolder,
+  };
 }

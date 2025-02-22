@@ -1,9 +1,6 @@
 import type { ApiFormattedText, ApiMessageEntity } from '../api/types';
 import { ApiMessageEntityTypes } from '../api/types';
 
-import { RE_LINK_TEMPLATE } from '../config';
-import { IS_EMOJI_SUPPORTED } from './windowEnvironment';
-
 export const ENTITY_CLASS_BY_NODE_NAME: Record<string, ApiMessageEntityTypes> = {
   B: ApiMessageEntityTypes.Bold,
   STRONG: ApiMessageEntityTypes.Bold,
@@ -19,45 +16,442 @@ export const ENTITY_CLASS_BY_NODE_NAME: Record<string, ApiMessageEntityTypes> = 
   BLOCKQUOTE: ApiMessageEntityTypes.Blockquote,
 };
 
-const MAX_TAG_DEEPNESS = 3;
+const SYMBOLS_BY_ENTITY_CLASS = {
+  [ApiMessageEntityTypes.Bold]: ['**', '__', '<b>'],
+  [ApiMessageEntityTypes.Italic]: ['*', '_', '<i>', '<em>'],
+  [ApiMessageEntityTypes.Underline]: ['<u>', '<ins>'],
+  [ApiMessageEntityTypes.Strike]: ['<s>', '<strike>', '<del>'],
+  [ApiMessageEntityTypes.Code]: ['<code', '`'],
+  [ApiMessageEntityTypes.Pre]: ['<pre>', '```'],
+  [ApiMessageEntityTypes.Blockquote]: ['<blockquote>'],
+  [ApiMessageEntityTypes.TextUrl]: ['<a'],
+  [ApiMessageEntityTypes.CustomEmoji]: ['<img'],
+  [ApiMessageEntityTypes.Spoiler]: ['<span'],
+};
 
-export default function parseHtmlAsFormattedText(
-  html: string, withMarkdownLinks = false, skipMarkdown = false,
-): ApiFormattedText {
-  const fragment = document.createElement('div');
-  fragment.innerHTML = skipMarkdown ? html
-    : withMarkdownLinks ? parseMarkdown(parseMarkdownLinks(html)) : parseMarkdown(html);
-  fixImageContent(fragment);
-  const text = fragment.innerText.trim().replace(/\u200b+/g, '');
-  const trimShift = fragment.innerText.indexOf(text[0]);
-  let textIndex = -trimShift;
-  let recursionDeepness = 0;
-  const entities: ApiMessageEntity[] = [];
+const getEntityClassBySymbol = () => {
+  const entityClasses = Object.keys(SYMBOLS_BY_ENTITY_CLASS) as (keyof typeof SYMBOLS_BY_ENTITY_CLASS)[];
 
-  function addEntity(node: ChildNode) {
-    if (node.nodeType === Node.COMMENT_NODE) return;
-    const { index, entity } = getEntityDataFromNode(node, text, textIndex);
+  return entityClasses.reduce<Record<string,
+  ApiMessageEntityTypes >>((acc, entityType) => {
+    const symbols = SYMBOLS_BY_ENTITY_CLASS[entityType];
+    symbols.forEach((symbol) => {
+      acc[symbol] = entityType;
+    });
+    return acc;
+  }, {});
+};
 
-    if (entity) {
-      textIndex = index;
-      entities.push(entity);
-    } else if (node.textContent) {
-      // Skip newlines on the beginning
-      if (index === 0 && node.textContent.trim() === '') {
-        return;
-      }
-      textIndex += node.textContent.length;
-    }
+const ENTITY_CLASS_BY_SYMBOL = getEntityClassBySymbol();
 
-    if (node.hasChildNodes() && recursionDeepness <= MAX_TAG_DEEPNESS) {
-      recursionDeepness += 1;
-      Array.from(node.childNodes).forEach(addEntity);
+type EntityData = {
+  entityType: ApiMessageEntityTypes | undefined;
+  textLength: number;
+  entityLength: number;
+  textOffset: number;
+  ignorePositions:{
+    start:number;
+    length:number;
+  }[] | undefined;
+  extra?:{
+    url?:string ;
+    documentId?: string;
+  };
+};
+
+const wrappedEntityDataRetrieverHelper = (openSymbolIndex:number, openSymbolLength:number,
+  closingSymbolIndex:number, closingSymbolLength:number) => {
+  const ignorePositions:EntityData['ignorePositions'] = [{
+    start: closingSymbolIndex,
+    length: closingSymbolLength,
+  }];
+
+  const entityLength = closingSymbolIndex - openSymbolIndex + closingSymbolLength;
+  const textLength = entityLength - openSymbolLength - closingSymbolLength;
+
+  return {
+    ignorePositions,
+    entityLength,
+    textLength,
+    textOffset: openSymbolLength,
+
+  };
+};
+
+const wrappedEntityDataRetriever = (input:string, position:number, symbol:string):EntityData | undefined => {
+  const entityType = ENTITY_CLASS_BY_SYMBOL[symbol];
+  const isHtml = symbol[0] === '<';
+  const closingSymbol = isHtml ? `</${symbol.slice(1)}` : symbol;
+  const openSymbolIndex = input.indexOf(symbol, position);
+
+  if (openSymbolIndex !== position) {
+    return undefined;
+  }
+
+  const closingSymbolIndex = input.indexOf(closingSymbol, openSymbolIndex + symbol.length + 1);
+
+  if (closingSymbolIndex < 0) {
+    return undefined;
+  }
+
+  return {
+    entityType,
+    ...wrappedEntityDataRetrieverHelper(openSymbolIndex, symbol.length, closingSymbolIndex, closingSymbol.length),
+  };
+};
+
+const linkEntityDataRetriever = (input:string, position:number):EntityData | undefined => {
+  const regex = /<a\s+[^>]*href=["'](https?:\/\/[^"']+)["'][^>]*>(.*?)<\/a>/gi;
+
+  const closingSymbol = '</a>';
+
+  const closingSymbolIndex = input.indexOf(closingSymbol, position);
+
+  if (closingSymbolIndex < 0) {
+    return undefined;
+  }
+
+  const inputSlice = input.slice(position, closingSymbolIndex + closingSymbol.length);
+
+  const match = regex.exec(inputSlice);
+
+  if (!match) {
+    return undefined;
+  }
+
+  const link = match[1];
+  const text = match[2];
+
+  if (!link || !text) {
+    return undefined;
+  }
+
+  const textOffset = input.indexOf(text, position);
+
+  const textLength = text.length;
+
+  const entityLength = closingSymbolIndex - position + closingSymbol.length;
+
+  return {
+    entityType: ApiMessageEntityTypes.TextUrl,
+    textLength,
+    ignorePositions: [],
+    textOffset,
+    entityLength,
+    extra: {
+      url: link,
+    },
+  };
+};
+
+const imgEntityDataRetriever = (input: string, position:number):EntityData | undefined => {
+  const imgRegex = /^<img\b[^>]*alt="([^"]+)"(?:[^>]*data-document-id="([^"]+)")?[^>]*>/;
+  const match = input.slice(position).match(imgRegex);
+
+  if (!match) {
+    return undefined;
+  }
+
+  const imgTag = match[0];
+
+  const text: string = match[1];
+
+  if (!text || input.indexOf(imgTag, position) !== position) {
+    return undefined;
+  }
+
+  const documentId = match[2];
+
+  const entityType = documentId ? ApiMessageEntityTypes.CustomEmoji : undefined;
+
+  const entityLength = imgTag.length;
+
+  const textOffset = imgTag.indexOf(text);
+
+  return {
+    entityType,
+    textLength: text.length,
+    ignorePositions: [{
+      start: position,
+      length: entityLength,
+    }],
+    textOffset,
+    entityLength,
+    extra: documentId ? {
+      documentId,
+    } : undefined,
+  };
+};
+
+const complexWrappedEntityDataRetriever = (input:string, position:number, symbol:string) => {
+  const entityType = ENTITY_CLASS_BY_SYMBOL[symbol];
+
+  const openSymbolIndex = input.indexOf(symbol, position);
+
+  if (openSymbolIndex !== position) {
+    return undefined;
+  }
+  const openSymbolLastIndex = input.indexOf('>', openSymbolIndex);
+
+  if (openSymbolLastIndex < 0) {
+    return undefined;
+  }
+
+  const closingSymbol = `</${symbol.slice(1)}>`;
+
+  const closingSymbolIndex = input.indexOf(closingSymbol, openSymbolLastIndex);
+
+  if (closingSymbolIndex < 0) {
+    return undefined;
+  }
+
+  const openSymbolLength = openSymbolLastIndex - openSymbolIndex + 1;
+
+  return {
+    entityType,
+    ...wrappedEntityDataRetrieverHelper(openSymbolIndex, openSymbolLength, closingSymbolIndex, closingSymbol.length),
+  };
+};
+
+const retrieveEntityData = (input:string, position:number, symbol:string):EntityData | undefined => {
+  if (symbol === '<code' || symbol === '<span') {
+    return complexWrappedEntityDataRetriever(input, position, symbol);
+  }
+
+  if (symbol === '<a') {
+    return linkEntityDataRetriever(input, position);
+  }
+
+  if (symbol === '<img') {
+    return imgEntityDataRetriever(input, position);
+  }
+
+  return wrappedEntityDataRetriever(input, position, symbol);
+};
+
+const getOrderedSymbols = () => {
+  const symbols = Object.keys(ENTITY_CLASS_BY_SYMBOL);
+  symbols.sort((a, b) => {
+    return b[0].length - a[0].length;
+  });
+
+  return symbols;
+};
+
+const ORDERED_SYMBOLS = getOrderedSymbols();
+
+const getInputEntityMatch = (input:string, chPosition:number, potentialEntitySymbols: string[]) => {
+  for (let i = 0; i < potentialEntitySymbols.length; i++) {
+    const symbol = potentialEntitySymbols[i];
+
+    const entityData = retrieveEntityData(input, chPosition, symbol);
+
+    if (entityData) {
+      return entityData;
     }
   }
 
-  Array.from(fragment.childNodes).forEach((node) => {
-    recursionDeepness = 1;
-    addEntity(node);
+  return undefined;
+};
+
+type EntitySymbolPairData = Pick<EntityData, 'textLength' | 'entityType' | 'textOffset' | 'extra'> &
+{ start:number;end:number };
+
+type EntitySymbolPairs = { [entity in ApiMessageEntityTypes]?: EntitySymbolPairData[] };
+
+const getSymbolMapsByCharacter = () => {
+  return ORDERED_SYMBOLS.reduce<Record<string, string[] | undefined>
+  >((acc, symbol) => {
+    const firstCh = symbol[0];
+
+    if (!acc[firstCh]) {
+      acc[firstCh] = [symbol];
+    } else {
+      acc[firstCh].push(symbol);
+    }
+
+    return acc;
+  }, {});
+};
+
+const ENTITIES_BY_FIRST_SYMBOL_CH = getSymbolMapsByCharacter();
+
+const getEntitySymbolPairs = (input:string) => {
+  const inputSymbolsMap:EntitySymbolPairs = {};
+  const ignoredPositions = new Set<number>();
+
+  for (let i = 0; i < input.length; i++) {
+    const currentI = i;
+
+    if (ignoredPositions.has(currentI)) {
+      continue;
+    }
+
+    const potentialEntitySymbols = ENTITIES_BY_FIRST_SYMBOL_CH[input[currentI]];
+
+    if (!potentialEntitySymbols) {
+      continue;
+    }
+
+    const matchedEntityData = getInputEntityMatch(input, currentI, potentialEntitySymbols);
+
+    if (!matchedEntityData) {
+      continue;
+    }
+
+    const { ignorePositions, ...pointData } = matchedEntityData;
+
+    ignorePositions?.forEach((position) => {
+      for (let j = 0; j < position.length; j++) {
+        ignoredPositions.add(j + i + position.start);
+      }
+    });
+
+    if (pointData.entityType) {
+      const symbolPairs = inputSymbolsMap[pointData.entityType] || [];
+
+      symbolPairs.push({
+        start: i,
+        end: i + pointData.entityLength - 1,
+        ...pointData,
+      });
+
+      if (!inputSymbolsMap[pointData.entityType]) {
+        inputSymbolsMap[pointData.entityType] = symbolPairs;
+      }
+    }
+
+    i += pointData.textOffset - 1;
+  }
+
+  return inputSymbolsMap;
+};
+
+type AstTreeNode = {
+  entityType: ApiMessageEntityTypes | undefined;
+  body: (string | AstTreeNode)[];
+  extra?: {};
+};
+
+const getAstTreeHelper = (input:string,
+  points:EntitySymbolPairData[], minPosition = 0, maxPosition = input.length) => {
+  const astTree: AstTreeNode[] = [];
+
+  if (!points.length) {
+    astTree.push({ entityType: undefined, body: [input.slice(minPosition, maxPosition)] });
+    return astTree;
+  }
+
+  let lastPointIndex;
+
+  for (let i = 0; i < points.length; i++) {
+    const currentI = i;
+    const point = points[currentI];
+
+    const previousPosition = currentI === 0 ? minPosition : points[currentI - 1].end + 1;
+
+    const previousTextSlice = input.slice(previousPosition, point.start);
+
+    if (previousTextSlice) {
+      astTree.push({
+        entityType: undefined,
+        body: [previousTextSlice],
+      });
+    }
+
+    let nextI = currentI;
+
+    const nestedPoints = points.filter((nestedPoint, nestedPointI) => {
+      const isNestedPoint = nestedPointI > i && point.start <= nestedPoint.start && point.end >= nestedPoint.end;
+
+      if (!isNestedPoint) {
+        return false;
+      }
+
+      nextI = Math.max(nextI, nestedPointI);
+      return true;
+    });
+
+    const newMinPosition = point.start + point.textOffset;
+    const newMaxPosition = newMinPosition + point.textLength;
+
+    const body = point.entityType ? getAstTreeHelper(input, nestedPoints, newMinPosition, newMaxPosition)
+      : [input.slice(newMinPosition, newMaxPosition)];
+
+    astTree.push({
+      entityType: point.entityType,
+      body,
+      extra: point.extra,
+    });
+
+    i = nextI;
+    lastPointIndex = currentI;
+  }
+
+  if (lastPointIndex !== undefined) {
+    const lastPoint = points[lastPointIndex];
+    const lastInputSlice = input.slice(lastPoint.end + 1, maxPosition);
+
+    if (lastInputSlice) {
+      astTree.push({ entityType: undefined, body: [lastInputSlice] });
+    }
+  }
+
+  return astTree;
+};
+
+const getAstTree = (input:string) => {
+  const entitySymbolPairs = getEntitySymbolPairs(input);
+
+  const points = Object.values(entitySymbolPairs).flat();
+
+  points.sort((a, b) => a.start - b.start);
+
+  const astTree = getAstTreeHelper(input, points);
+
+  return astTree;
+};
+
+export default function parseHtmlAsFormattedText(
+  html: string,
+): ApiFormattedText {
+  const astTree = getAstTree(html);
+
+  let text = '';
+  const entities:ApiMessageEntity[] = [];
+
+  const addEntity = (node: AstTreeNode, entityDataList: Pick<AstTreeNode, 'entityType' | 'extra'>[]) => {
+    if (!node.entityType) {
+      const nodeText = node.body[0];
+
+      if (typeof nodeText === 'string') {
+        const offset = text.length;
+        const length = nodeText.length;
+
+        entityDataList.forEach((entityData) => {
+          entities.push({
+            offset,
+            length,
+            type: entityData.entityType,
+            ...entityData.extra,
+          } as ApiMessageEntity);
+        });
+        text += nodeText;
+      }
+
+      return;
+    }
+
+    node.body.forEach((nestedNode) => {
+      if (typeof nestedNode === 'string') {
+        return;
+      }
+      addEntity(nestedNode, [...entityDataList, { entityType: node.entityType, extra: node.extra }]);
+    });
+  };
+
+  astTree.forEach((node) => {
+    addEntity(node, []);
   });
 
   return {
@@ -74,190 +468,4 @@ export function fixImageContent(fragment: HTMLDivElement) {
       node.replaceWith(node.alt || '');
     }
   });
-}
-
-function parseMarkdown(html: string) {
-  let parsedHtml = html.slice(0);
-
-  // Strip redundant nbsp's
-  parsedHtml = parsedHtml.replace(/&nbsp;/g, ' ');
-
-  // Replace <div><br></div> with newline (new line in Safari)
-  parsedHtml = parsedHtml.replace(/<div><br([^>]*)?><\/div>/g, '\n');
-  // Replace <br> with newline
-  parsedHtml = parsedHtml.replace(/<br([^>]*)?>/g, '\n');
-
-  // Strip redundant <div> tags
-  parsedHtml = parsedHtml.replace(/<\/div>(\s*)<div>/g, '\n');
-  parsedHtml = parsedHtml.replace(/<div>/g, '\n');
-  parsedHtml = parsedHtml.replace(/<\/div>/g, '');
-
-  // Pre
-  parsedHtml = parsedHtml.replace(/^`{3}(.*?)[\n\r](.*?[\n\r]?)`{3}/gms, '<pre data-language="$1">$2</pre>');
-  parsedHtml = parsedHtml.replace(/^`{3}[\n\r]?(.*?)[\n\r]?`{3}/gms, '<pre>$1</pre>');
-  parsedHtml = parsedHtml.replace(/[`]{3}([^`]+)[`]{3}/g, '<pre>$1</pre>');
-
-  // Code
-  parsedHtml = parsedHtml.replace(
-    /(?!<(code|pre)[^<]*|<\/)[`]{1}([^`\n]+)[`]{1}(?![^<]*<\/(code|pre)>)/g,
-    '<code>$2</code>',
-  );
-
-  // Custom Emoji markdown tag
-  if (!IS_EMOJI_SUPPORTED) {
-    // Prepare alt text for custom emoji
-    parsedHtml = parsedHtml.replace(/\[<img[^>]+alt="([^"]+)"[^>]*>]/gm, '[$1]');
-  }
-  parsedHtml = parsedHtml.replace(
-    /(?!<(?:code|pre)[^<]*|<\/)\[([^\]\n]+)\]\(customEmoji:(\d+)\)(?![^<]*<\/(?:code|pre)>)/g,
-    '<img alt="$1" data-document-id="$2">',
-  );
-
-  // Other simple markdown
-  parsedHtml = parsedHtml.replace(
-    /(?!<(code|pre)[^<]*|<\/)[*]{2}([^*\n]+)[*]{2}(?![^<]*<\/(code|pre)>)/g,
-    '<b>$2</b>',
-  );
-  parsedHtml = parsedHtml.replace(
-    /(?!<(code|pre)[^<]*|<\/)[_]{2}([^_\n]+)[_]{2}(?![^<]*<\/(code|pre)>)/g,
-    '<i>$2</i>',
-  );
-  parsedHtml = parsedHtml.replace(
-    /(?!<(code|pre)[^<]*|<\/)[~]{2}([^~\n]+)[~]{2}(?![^<]*<\/(code|pre)>)/g,
-    '<s>$2</s>',
-  );
-  parsedHtml = parsedHtml.replace(
-    /(?!<(code|pre)[^<]*|<\/)[|]{2}([^|\n]+)[|]{2}(?![^<]*<\/(code|pre)>)/g,
-    `<span data-entity-type="${ApiMessageEntityTypes.Spoiler}">$2</span>`,
-  );
-
-  return parsedHtml;
-}
-
-function parseMarkdownLinks(html: string) {
-  return html.replace(new RegExp(`\\[([^\\]]+?)]\\((${RE_LINK_TEMPLATE}+?)\\)`, 'g'), (_, text, link) => {
-    const url = link.includes('://') ? link : link.includes('@') ? `mailto:${link}` : `https://${link}`;
-    return `<a href="${url}">${text}</a>`;
-  });
-}
-
-function getEntityDataFromNode(
-  node: ChildNode,
-  rawText: string,
-  textIndex: number,
-): { index: number; entity?: ApiMessageEntity } {
-  const type = getEntityTypeFromNode(node);
-
-  if (!type || !node.textContent) {
-    return {
-      index: textIndex,
-      entity: undefined,
-    };
-  }
-
-  const rawIndex = rawText.indexOf(node.textContent, textIndex);
-  // In some cases, last text entity ends with a newline (which gets trimmed from `rawText`).
-  // In this case, `rawIndex` would return `-1`, so we use `textIndex` instead.
-  const index = rawIndex >= 0 ? rawIndex : textIndex;
-  const offset = rawText.substring(0, index).length;
-  const { length } = rawText.substring(index, index + node.textContent.length);
-
-  if (type === ApiMessageEntityTypes.TextUrl) {
-    return {
-      index,
-      entity: {
-        type,
-        offset,
-        length,
-        url: (node as HTMLAnchorElement).href,
-      },
-    };
-  }
-  if (type === ApiMessageEntityTypes.MentionName) {
-    return {
-      index,
-      entity: {
-        type,
-        offset,
-        length,
-        userId: (node as HTMLAnchorElement).dataset.userId!,
-      },
-    };
-  }
-
-  if (type === ApiMessageEntityTypes.Pre) {
-    return {
-      index,
-      entity: {
-        type,
-        offset,
-        length,
-        language: (node as HTMLPreElement).dataset.language,
-      },
-    };
-  }
-
-  if (type === ApiMessageEntityTypes.CustomEmoji) {
-    return {
-      index,
-      entity: {
-        type,
-        offset,
-        length,
-        documentId: (node as HTMLImageElement).dataset.documentId!,
-      },
-    };
-  }
-
-  return {
-    index,
-    entity: {
-      type,
-      offset,
-      length,
-    },
-  };
-}
-
-function getEntityTypeFromNode(node: ChildNode): ApiMessageEntityTypes | undefined {
-  if (node instanceof HTMLElement && node.dataset.entityType) {
-    return node.dataset.entityType as ApiMessageEntityTypes;
-  }
-
-  if (ENTITY_CLASS_BY_NODE_NAME[node.nodeName]) {
-    return ENTITY_CLASS_BY_NODE_NAME[node.nodeName];
-  }
-
-  if (node.nodeName === 'A') {
-    const anchor = node as HTMLAnchorElement;
-    if (anchor.dataset.entityType === ApiMessageEntityTypes.MentionName) {
-      return ApiMessageEntityTypes.MentionName;
-    }
-    if (anchor.dataset.entityType === ApiMessageEntityTypes.Url) {
-      return ApiMessageEntityTypes.Url;
-    }
-    if (anchor.href.startsWith('mailto:')) {
-      return ApiMessageEntityTypes.Email;
-    }
-    if (anchor.href.startsWith('tel:')) {
-      return ApiMessageEntityTypes.Phone;
-    }
-    if (anchor.href !== anchor.textContent) {
-      return ApiMessageEntityTypes.TextUrl;
-    }
-
-    return ApiMessageEntityTypes.Url;
-  }
-
-  if (node.nodeName === 'SPAN') {
-    return (node as HTMLElement).dataset.entityType as any;
-  }
-
-  if (node.nodeName === 'IMG') {
-    if ((node as HTMLImageElement).dataset.documentId) {
-      return ApiMessageEntityTypes.CustomEmoji;
-    }
-  }
-
-  return undefined;
 }

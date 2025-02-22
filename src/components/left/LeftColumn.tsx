@@ -1,4 +1,5 @@
 import type { RefObject } from 'react';
+import type { StateHookSetter } from '../../lib/teact/teact';
 import React, {
   memo, useEffect, useMemo, useState,
 } from '../../lib/teact/teact';
@@ -33,6 +34,8 @@ import './LeftColumn.scss';
 
 interface OwnProps {
   ref: RefObject<HTMLDivElement>;
+  content: LeftColumnContent;
+  setContent: StateHookSetter<LeftColumnContent>;
 }
 
 type StateProps = {
@@ -86,6 +89,7 @@ function LeftColumn({
   isClosingSearch,
   archiveSettings,
   isArchivedStoryRibbonShown,
+  content, setContent,
 }: OwnProps & StateProps) {
   const {
     setGlobalSearchQuery,
@@ -99,7 +103,6 @@ function LeftColumn({
     requestNextSettingsScreen,
   } = getActions();
 
-  const [content, setContent] = useState<LeftColumnContent>(LeftColumnContent.ChatList);
   const [settingsScreen, setSettingsScreen] = useState(SettingsScreens.Main);
   const [contactsFilter, setContactsFilter] = useState<string>('');
   const [foldersState, foldersDispatch] = useFoldersReducer();
@@ -448,7 +451,7 @@ function LeftColumn({
     if (nextFoldersAction) {
       foldersDispatch(nextFoldersAction);
     }
-  }, [foldersDispatch, nextFoldersAction, nextSettingsScreen, requestNextSettingsScreen]);
+  }, [foldersDispatch, nextFoldersAction, nextSettingsScreen, requestNextSettingsScreen, setContent]);
 
   const handleSettingsScreenSelect = useLastCallback((screen: SettingsScreens) => {
     setContent(LeftColumnContent.Settings);
@@ -471,7 +474,7 @@ function LeftColumn({
         handleSettingsScreenSelect(prevSettingsScreenRef.current!);
       },
     });
-  }, [prevSettingsScreenRef, ref]);
+  }, [prevSettingsScreenRef, ref, setContent]);
 
   function renderContent(isActive: boolean) {
     switch (contentType) {

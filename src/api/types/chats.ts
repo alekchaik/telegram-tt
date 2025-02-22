@@ -310,3 +310,13 @@ export type ApiDraft = {
   effectId?: string;
   isLocal?: boolean;
 };
+
+export type ChatListFoldersInfo = {
+  orderedFolderIds: number[] | undefined;
+  chatFoldersById:Record<number, ApiChatFolder>;
+  maxFolders:number;
+  maxChatLists:number;
+  folderInvitesById: Record<number, ApiChatlistExportedInvite[]>;
+  maxFolderInvites:number;
+  activeChatFolder: number | undefined;
+};

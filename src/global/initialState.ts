@@ -249,6 +249,7 @@ export const INITIAL_GLOBAL_STATE: GlobalState = {
         : (IS_MAC_OS ? MACOS_DEFAULT_MESSAGE_TEXT_SIZE_PX : DEFAULT_MESSAGE_TEXT_SIZE_PX),
       animationLevel: ANIMATION_LEVEL_DEFAULT,
       messageSendKeyCombo: 'enter',
+      foldersView: 'above',
       canAutoLoadPhotoFromContacts: true,
       canAutoLoadPhotoInPrivateChats: true,
       canAutoLoadPhotoInGroups: true,

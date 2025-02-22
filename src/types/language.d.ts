@@ -314,6 +314,9 @@ export interface LangPair {
   'CreateNewFilter': undefined;
   'Filters': undefined;
   'FilterRecommended': undefined;
+  'FoldersView': undefined;
+  'FoldersViewLeft': undefined;
+  'FoldersViewAbove': undefined;
   'Add': undefined;
   'EnterNewPasscode': undefined;
   'Continue': undefined;
