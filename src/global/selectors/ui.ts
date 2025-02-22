@@ -165,3 +165,11 @@ export function selectActiveWebApp<T extends GlobalState>(
 
   return selectWebApp(global, activeWebAppKey, tabId);
 }
+
+export function selectShouldShowLeftSidebar<T extends GlobalState>(
+  global: T,
+) {
+  const { settings: { byKey: { foldersView } } } = global;
+
+  return foldersView === 'left';
+}

@@ -102,6 +102,7 @@ export interface ISettings extends NotifySettings, Record<string, any> {
   messageTextSize: number;
   animationLevel: AnimationLevel;
   messageSendKeyCombo: 'enter' | 'ctrl-enter';
+  foldersView: 'left' | 'above';
   canAutoLoadPhotoFromContacts: boolean;
   canAutoLoadPhotoInPrivateChats: boolean;
   canAutoLoadPhotoInGroups: boolean;
